@@ -64,9 +64,28 @@ Porthouse groups by port, then checks if there are **distinct PIDs**. Same PID o
 
 ## Install
 
-### Prebuilt Binaries (no Rust needed)
+### Homebrew (macOS/Linux)
 
-Download from [GitHub Releases](https://github.com/mohavinash/porthouse/releases/latest):
+```bash
+brew install mohavinash/porthouse/porthouse
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add porthouse https://github.com/mohavinash/scoop-porthouse
+scoop install porthouse
+```
+
+### Cargo (from source)
+
+```bash
+cargo install --git https://github.com/mohavinash/porthouse
+```
+
+### Direct Download
+
+Prebuilt binaries for all platforms on [GitHub Releases](https://github.com/mohavinash/porthouse/releases/latest):
 
 ```bash
 # macOS (Apple Silicon)
@@ -82,13 +101,7 @@ curl -L https://github.com/mohavinash/porthouse/releases/latest/download/porthou
 chmod +x porthouse && sudo mv porthouse /usr/local/bin/
 ```
 
-Windows: download `porthouse-windows-x86_64.exe` from the [releases page](https://github.com/mohavinash/porthouse/releases/latest) and add it to your PATH.
-
-### From Source
-
-```bash
-cargo install --git https://github.com/mohavinash/porthouse
-```
+Windows: download `porthouse-windows-x86_64.exe` from the [releases page](https://github.com/mohavinash/porthouse/releases/latest).
 
 ## Quick Start
 
