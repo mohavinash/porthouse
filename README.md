@@ -20,8 +20,30 @@ Porthouse fixes this.
 
 ## Install
 
+### Prebuilt Binaries (no Rust needed)
+
+Download from [GitHub Releases](https://github.com/mohavinash/porthouse/releases/latest):
+
 ```bash
-# From source (requires Rust)
+# macOS (Apple Silicon)
+curl -L https://github.com/mohavinash/porthouse/releases/latest/download/porthouse-macos-arm64 -o porthouse
+chmod +x porthouse && sudo mv porthouse /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/mohavinash/porthouse/releases/latest/download/porthouse-macos-x86_64 -o porthouse
+chmod +x porthouse && sudo mv porthouse /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/mohavinash/porthouse/releases/latest/download/porthouse-linux-x86_64 -o porthouse
+chmod +x porthouse && sudo mv porthouse /usr/local/bin/
+```
+
+Windows: download `porthouse-windows-x86_64.exe` from the [releases page](https://github.com/mohavinash/porthouse/releases/latest) and add it to your PATH.
+
+### From Source
+
+```bash
+# With cargo (requires Rust)
 cargo install --git https://github.com/mohavinash/porthouse
 
 # Or clone and build
