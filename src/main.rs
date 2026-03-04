@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use porthouse::cli::{Cli, Commands, DaemonAction};
@@ -59,8 +59,8 @@ fn cmd_status() -> Result<()> {
 
     // Print header
     println!(
-        "{:<8} {:<8} {:<20} {:<8} {}",
-        "PORT", "PID", "PROCESS", "PROTO", "ADDRESS"
+        "{:<8} {:<8} {:<20} {:<8} ADDRESS",
+        "PORT", "PID", "PROCESS", "PROTO",
     );
     println!("{}", "-".repeat(60));
 
@@ -162,7 +162,7 @@ fn cmd_suggest(count: usize, from: u16, to: u16) -> Result<()> {
 /// Register a project with port reservations.
 fn cmd_register(
     mut registry: Registry,
-    registry_path: &PathBuf,
+    registry_path: &Path,
     name: &str,
     range: Option<&str>,
     ports: Option<&str>,

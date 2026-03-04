@@ -56,8 +56,21 @@ pub fn is_port_free(port: u16) -> Result<bool> {
 
 /// Suggest `count` free ports within the inclusive range `[range.0, range.1]`.
 ///
-/// Returns an error if there aren't enough free ports in the range.
+/// Returns an error if there aren't enough free ports in the range, or if the
+/// range is inverted (start > end). Requesting 0 ports returns an empty list.
 pub fn suggest_free_ports(count: usize, range: (u16, u16)) -> Result<Vec<u16>> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    if range.0 > range.1 {
+        anyhow::bail!(
+            "Invalid port range: start ({}) is greater than end ({})",
+            range.0,
+            range.1
+        );
+    }
+
     let occupied: std::collections::HashSet<u16> = scan_ports()?
         .iter()
         .map(|e| e.port)

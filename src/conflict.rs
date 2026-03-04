@@ -85,12 +85,20 @@ pub fn detect_registry_violations(
 /// Suggest an alternative port for a conflicted port.
 ///
 /// Starts searching from `conflicted_port + 1` upwards and returns the first
-/// port that is not already in use by any entry. Stops at 65535.
+/// port that is not already in use by any entry. Returns 0 if no free port
+/// exists between `conflicted_port + 1` and 65535.
 pub fn suggest_resolution(conflicted_port: u16, entries: &[PortEntry]) -> u16 {
+    if conflicted_port == 65535 {
+        return 0;
+    }
     let used: std::collections::HashSet<u16> = entries.iter().map(|e| e.port).collect();
     let mut candidate = conflicted_port + 1;
     while used.contains(&candidate) && candidate < 65535 {
         candidate += 1;
     }
-    candidate
+    if used.contains(&candidate) {
+        0 // No free port found
+    } else {
+        candidate
+    }
 }
