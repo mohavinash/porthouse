@@ -27,7 +27,6 @@ fn test_alert_event_new_listener_formatting() {
     let msg = event.to_message();
     assert!(msg.contains("3000"));
     assert!(msg.contains("node"));
-    assert!(msg.contains("1234"));
 }
 
 #[test]
@@ -75,7 +74,7 @@ fn test_alert_event_titles() {
         process: "x".into(),
         pid: 1,
     };
-    assert!(new_listener.title().contains("Listener"));
+    assert!(new_listener.title().contains("Service"));
 
     let freed = AlertEvent::PortFreed { port: 8080 };
     assert!(freed.title().contains("Freed"));
@@ -92,8 +91,6 @@ fn test_alert_conflict_empty_processes() {
     };
     let msg = event.to_message();
     assert!(msg.contains("9000"), "Message should contain the port");
-    // With no processes, the "vs" join should produce an empty string after the colon
-    assert!(msg.contains("Port conflict on 9000:"));
 }
 
 /// AlertEvent with a very long process name should not panic or truncate.
@@ -108,7 +105,6 @@ fn test_alert_very_long_process_name() {
     let msg = event.to_message();
     assert!(msg.contains(&long_name), "Full long name should appear in message");
     assert!(msg.contains("5000"));
-    assert!(msg.contains("42"));
 }
 
 /// Log file writing when the parent directory does not exist should create it.
@@ -229,7 +225,6 @@ fn test_alert_conflict_many_processes() {
     let msg = event.to_message();
     assert!(msg.contains("proc_0"));
     assert!(msg.contains("proc_99"));
-    assert!(msg.contains(" vs "));
 }
 
 /// PortFreed event formatting.

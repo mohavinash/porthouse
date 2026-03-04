@@ -22,26 +22,28 @@ impl AlertEvent {
     pub fn to_message(&self) -> String {
         match self {
             AlertEvent::Conflict { port, processes } => {
-                let procs: Vec<String> = processes
-                    .iter()
-                    .map(|(name, pid)| format!("{} (PID {})", name, pid))
-                    .collect();
-                format!("Port conflict on {}: {}", port, procs.join(" vs "))
+                let names: Vec<&str> = processes.iter().map(|(name, _)| name.as_str()).collect();
+                format!(
+                    "{} are both fighting over port {}. Run `porthouse kill {}` or reassign one.",
+                    names.join(" and "),
+                    port,
+                    port
+                )
             }
-            AlertEvent::NewListener { port, process, pid } => {
-                format!("New listener: {} (PID {}) on port {}", process, pid, port)
+            AlertEvent::NewListener { port, process, .. } => {
+                format!("{} just started on port {}.", process, port)
             }
             AlertEvent::PortFreed { port } => {
-                format!("Port {} is now free", port)
+                format!("Port {} is free again.", port)
             }
         }
     }
 
     pub fn title(&self) -> &str {
         match self {
-            AlertEvent::Conflict { .. } => "Porthouse: Port Conflict",
-            AlertEvent::NewListener { .. } => "Porthouse: New Listener",
-            AlertEvent::PortFreed { .. } => "Porthouse: Port Freed",
+            AlertEvent::Conflict { .. } => "Port Conflict",
+            AlertEvent::NewListener { .. } => "New Service",
+            AlertEvent::PortFreed { .. } => "Port Freed",
         }
     }
 }
