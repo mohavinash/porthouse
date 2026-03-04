@@ -11,7 +11,11 @@ pub struct Conflict {
     pub entries: Vec<PortEntry>,
 }
 
-/// Detect port conflicts: ports that have more than one process listening.
+/// Detect port conflicts: ports where multiple distinct processes are listening.
+///
+/// A conflict is when different PIDs share the same port. The same process
+/// binding to multiple addresses (e.g., `::` and `0.0.0.0` for dual-stack)
+/// is normal and NOT a conflict.
 ///
 /// Returns a list of [`Conflict`] structs sorted by port number.
 pub fn detect_conflicts(entries: &[PortEntry]) -> Vec<Conflict> {
@@ -22,7 +26,13 @@ pub fn detect_conflicts(entries: &[PortEntry]) -> Vec<Conflict> {
 
     let mut conflicts: Vec<Conflict> = by_port
         .into_iter()
-        .filter(|(_, entries)| entries.len() > 1)
+        .filter(|(_, entries)| {
+            // Only a conflict if there are multiple distinct PIDs on the same port
+            let mut pids: Vec<u32> = entries.iter().map(|e| e.pid).collect();
+            pids.sort();
+            pids.dedup();
+            pids.len() > 1
+        })
         .map(|(port, entries)| Conflict { port, entries })
         .collect();
 

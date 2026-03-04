@@ -12,6 +12,16 @@ fn make_entry(port: u16, pid: u32, name: &str) -> PortEntry {
     }
 }
 
+fn make_entry_addr(port: u16, pid: u32, name: &str, addr: &str) -> PortEntry {
+    PortEntry {
+        port,
+        pid,
+        process_name: name.to_string(),
+        protocol: "TCP".to_string(),
+        address: addr.to_string(),
+    }
+}
+
 #[test]
 fn test_no_conflicts_when_unique_ports() {
     let entries = vec![
@@ -105,4 +115,27 @@ fn test_conflict_struct_fields() {
     let conflict: &Conflict = &conflicts[0];
     assert_eq!(conflict.port, 4000);
     assert_eq!(conflict.entries.len(), 2);
+}
+
+#[test]
+fn test_same_pid_different_addresses_is_not_a_conflict() {
+    // Same process binding to both IPv4 and IPv6 (dual-stack) is normal
+    let entries = vec![
+        make_entry_addr(5000, 518, "ControlCenter", "0.0.0.0"),
+        make_entry_addr(5000, 518, "ControlCenter", "::"),
+    ];
+    let conflicts = detect_conflicts(&entries);
+    assert!(conflicts.is_empty(), "Same PID on same port with different addresses should not be a conflict");
+}
+
+#[test]
+fn test_different_pids_same_port_is_a_conflict() {
+    // postgres (native) and docker postgres on same port = real conflict
+    let entries = vec![
+        make_entry_addr(5432, 65109, "postgres", "127.0.0.1"),
+        make_entry_addr(5432, 30215, "com.docker.backend", "::"),
+    ];
+    let conflicts = detect_conflicts(&entries);
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].port, 5432);
 }
