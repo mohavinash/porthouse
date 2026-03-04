@@ -33,7 +33,7 @@ impl Default for PorthouseConfig {
         Self {
             daemon: DaemonConfig {
                 scan_interval_secs: 3,
-                port_range: (1024, 65535),
+                port_range: (1024, 49151),
             },
             alerts: AlertConfig {
                 macos_notifications: true,

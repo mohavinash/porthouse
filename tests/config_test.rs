@@ -6,7 +6,7 @@ use tempfile::TempDir;
 fn test_default_config_has_sane_values() {
     let config = PorthouseConfig::default();
     assert_eq!(config.daemon.scan_interval_secs, 3);
-    assert_eq!(config.daemon.port_range, (1024, 65535));
+    assert_eq!(config.daemon.port_range, (1024, 49151));
     assert!(config.alerts.macos_notifications);
     assert!(config.alerts.terminal_bell);
     assert_eq!(config.defaults.ports_per_project, 10);

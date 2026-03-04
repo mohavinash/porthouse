@@ -56,7 +56,7 @@ pub fn start(config: &PorthouseConfig, config_dir: &Path) -> Result<()> {
     );
 
     while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Ok(entries) = scanner::scan_ports() {
+        if let Ok(entries) = scanner::scan_ports_in_range(config.daemon.port_range.0, config.daemon.port_range.1) {
             let current_ports: HashSet<u16> = entries.iter().map(|e| e.port).collect();
 
             // Only alert after the first scan (skip initial state)

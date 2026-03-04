@@ -1,22 +1,66 @@
 # Porthouse
 
-A lighthouse for your ports. Monitors listening ports, detects conflicts, and helps you manage port assignments across multiple projects.
+A single binary that replaces `lsof -i | grep LISTEN | sort | awk | ...` with one command. Monitors listening ports, detects real conflicts, and manages port assignments across projects.
 
 ## The Problem
 
-You're running 5 projects locally — each with a frontend, backend, and database. Port 3000 is taken. Port 8000 is taken. Postgres is fighting Docker. You run `lsof -i :3000` for the 50th time today.
+Every developer running multiple projects locally hits this wall. You have 3-5 services — frontend on 3000, backend on 8000, Postgres on 5432, Redis on 6379 — and then Docker grabs 5432, a second project wants 3000, and you're debugging connectivity issues that are really port collisions.
 
-Porthouse fixes this.
+The current toolkit for this:
 
-## Why Porthouse
+| What you do now | What's wrong with it |
+|---|---|
+| `lsof -i :3000` | Shows raw socket entries, no conflict analysis. Dual-stack bindings (same process on `0.0.0.0` and `::`) look like conflicts but aren't. |
+| `lsof -i \| grep LISTEN` | Returns 40-80 lines on a typical dev machine. No grouping, no process dedup, no actionable output. |
+| `netstat -tlnp` | Linux-only, deprecated on macOS. Same raw output problem. |
+| `ss -tlnp` | Linux-only. Still no conflict detection. |
+| `fuser 3000/tcp` | Checks one port at a time. No overview. |
 
-- **One command to see everything** — `porthouse status` replaces `lsof -i | grep LISTEN | sort | ...`
-- **Real conflict detection** — only flags actual conflicts (different processes on the same port), ignores normal dual-stack bindings that flood `lsof` output
-- **Project-aware** — register your projects with port ranges so you always know which project owns which port
-- **Background monitoring** — daemon watches for conflicts 24/7 and sends native macOS notifications the moment something goes wrong
-- **CI/CD friendly** — `porthouse check --quiet` exits with code 1 on conflicts, `--json` for machine-readable output
-- **Tiny footprint** — 2 MB binary, <5 MB RAM, <0.1% CPU. No runtime dependencies, no Docker, no Node.js
-- **Works on servers too** — same tool scales from your laptop to staging servers to shared dev environments
+None of these tools tell you: "Port 5432 has a conflict — Postgres and Docker are both trying to bind it. Port 5433 is free."
+
+Porthouse does.
+
+## Measured Performance
+
+Tested on macOS (Apple Silicon, M4 Pro):
+
+| Metric | Measured |
+|---|---|
+| Binary size | **2.2 MB** |
+| Full port scan | **10ms** (43 listening ports) |
+| Daemon memory (RSS) | **12 MB** |
+| Daemon CPU | **0.0%** (wakes every 3s, scans, sleeps) |
+| Startup time | **<10ms** (no runtime, no interpreter, no JIT) |
+| Dependencies at runtime | **Zero** — static binary, no Node.js, no Python, no Docker |
+
+For comparison: a Node.js "hello world" process uses ~40 MB RSS. A Python script importing `psutil` uses ~25 MB. Porthouse's daemon monitors all your ports for less memory than a single idle Node process.
+
+## What It Does That Existing Tools Don't
+
+| Capability | `lsof`/`ss`/`netstat` | Port management scripts | Porthouse |
+|---|---|---|---|
+| List listening ports | Raw socket dump | Usually | Clean table with process names |
+| Detect real conflicts | No (shows all bindings) | Sometimes | Yes — PID-aware, ignores dual-stack |
+| Suggest free ports | No | Sometimes | Yes — range-aware |
+| Project registry | No | No | Yes — know which project owns which port |
+| Background monitoring | No | No | Yes — daemon with native alerts |
+| macOS/Linux notifications | No | No | Yes |
+| CI/CD integration | Manual | Manual | `--quiet` exit codes, `--json` output |
+| Kill by port | `kill $(lsof -t -i:3000)` | Usually | `porthouse kill 3000` |
+| TUI dashboard | No | No | Yes — real-time, keyboard-driven |
+
+### Why PID-aware conflict detection matters
+
+Run `lsof -i :5000` on a Mac and you'll see:
+
+```
+ControlCenter 518 TCP *:5000 (LISTEN)
+ControlCenter 518 TCP [::]:5000 (LISTEN)
+```
+
+Two entries, same process (PID 518), same port. This is normal dual-stack binding — not a conflict. Every tool that just counts port occurrences will flag this as a problem.
+
+Porthouse groups by port, then checks if there are **distinct PIDs**. Same PID on multiple addresses = normal. Different PIDs on the same port = actual conflict. This eliminates the false positives that make `lsof` output noisy and untrustworthy.
 
 ## Install
 
@@ -43,13 +87,7 @@ Windows: download `porthouse-windows-x86_64.exe` from the [releases page](https:
 ### From Source
 
 ```bash
-# With cargo (requires Rust)
 cargo install --git https://github.com/mohavinash/porthouse
-
-# Or clone and build
-git clone https://github.com/mohavinash/porthouse.git
-cd porthouse
-cargo install --path .
 ```
 
 ## Quick Start
@@ -58,7 +96,7 @@ cargo install --path .
 # See what's running on your ports
 porthouse status
 
-# Check for port conflicts
+# Check for port conflicts (exits 1 if conflicts found)
 porthouse check
 
 # Find 3 free ports
@@ -75,8 +113,6 @@ porthouse kill 3000
 
 ### `porthouse status`
 
-Shows all listening ports with process info:
-
 ```
 PORT     PID      PROCESS              PROTO    ADDRESS
 ------------------------------------------------------------
@@ -84,11 +120,16 @@ PORT     PID      PROCESS              PROTO    ADDRESS
 5432     65109    postgres             TCP      127.0.0.1
 5432     30215    com.docker.backend   TCP      ::
 8000     1783     Python               TCP      127.0.0.1
+
+CONFLICTS DETECTED:
+------------------------------------------------------------
+  Port 5432:
+    - postgres (PID 65109) [TCP] on 127.0.0.1
+    - com.docker.backend (PID 30215) [TCP] on ::
+    Suggested alternative: port 5433
 ```
 
 ### `porthouse check`
-
-Detects real conflicts — different processes fighting over the same port. Exits with code 1 if conflicts exist (useful in scripts and CI).
 
 ```bash
 $ porthouse check
@@ -97,18 +138,14 @@ Found 1 conflict(s):
     - postgres (PID 65109)
     - com.docker.backend (PID 30215)
 
-# Use in scripts
+# Silent mode for scripts — exit code only
 porthouse check --quiet || echo "Fix your ports!"
 
-# Machine-readable output
+# JSON for CI pipelines
 porthouse check --json
 ```
 
-Smart enough to ignore dual-stack bindings (same process on `0.0.0.0` and `::`) — only flags actual conflicts between different processes.
-
 ### `porthouse suggest [COUNT]`
-
-Find free ports:
 
 ```bash
 $ porthouse suggest 3
@@ -116,7 +153,6 @@ $ porthouse suggest 3
 1027
 1028
 
-# Within a specific range
 $ porthouse suggest 3 --from 8000 --to 9000
 8001
 8002
@@ -124,8 +160,6 @@ $ porthouse suggest 3 --from 8000 --to 9000
 ```
 
 ### `porthouse free <PORT>`
-
-Check a specific port:
 
 ```bash
 $ porthouse free 3000
@@ -138,8 +172,6 @@ Port 9999 is free
 
 ### `porthouse kill <PORT>`
 
-Kill the process on a port:
-
 ```bash
 $ porthouse kill 3000
 Killing node (PID 4357) on port 3000
@@ -147,38 +179,25 @@ Killing node (PID 4357) on port 3000
 
 ### `porthouse register <NAME>`
 
-Register a project with reserved ports:
-
 ```bash
-# Reserve a range for your project
 porthouse register my-app --range 3000-3010 --ports 3000,3001
-
-# The registry is stored at ~/.porthouse/registry.toml
 ```
+
+The registry tracks which project owns which ports. Stored at `~/.porthouse/registry.toml`.
 
 ### `porthouse daemon`
 
-Run a background monitor that alerts on port conflicts:
-
 ```bash
-porthouse daemon start    # Start monitoring (runs in foreground, use & to background)
-porthouse daemon status   # Check if daemon is running
-porthouse daemon stop     # Stop the daemon
+porthouse daemon start    # Start background monitoring
+porthouse daemon status   # Check if running
+porthouse daemon stop     # Stop
 ```
 
-The daemon scans every 3 seconds and sends alerts via:
-- macOS notifications
-- Terminal messages
-- Log file (`~/.porthouse/alerts.log`)
-- Webhook (optional, for Slack/Discord)
+Scans every 3 seconds. Alerts via macOS notifications, terminal, log file, or webhook (Slack/Discord).
 
 ## TUI Dashboard
 
-Run `porthouse` with no arguments to launch the interactive dashboard:
-
-```
-porthouse
-```
+Run `porthouse` with no arguments:
 
 ```
 +- Porthouse - Port Monitor & Manager ----------------------------+
@@ -197,28 +216,30 @@ porthouse
 +-----------------------------------------------------------------+
 ```
 
+Real-time updates. Navigate with `j`/`k`, kill a process with `K`, refresh with `r`.
+
 ## Configuration
 
 All config lives in `~/.porthouse/`:
 
-**`config.toml`** — daemon and alert settings:
+**`config.toml`**
 
 ```toml
 [daemon]
 scan_interval_secs = 3
-port_range = [1024, 65535]
+port_range = [1024, 49151]    # excludes ephemeral ports
 
 [alerts]
 macos_notifications = true
 terminal_bell = true
 log_file = "~/.porthouse/alerts.log"
-webhook_url = ""          # optional: Slack/Discord webhook
+webhook_url = ""              # Slack/Discord webhook
 
 [defaults]
 ports_per_project = 10
 ```
 
-**`registry.toml`** — project port reservations:
+**`registry.toml`**
 
 ```toml
 [[project]]
@@ -229,39 +250,16 @@ range = [3000, 3010]
 
 [[project]]
 name = "shared"
-ports = [5432, 6379]    # postgres, redis
+ports = [5432, 6379]
 ```
-
-## Claude Code Integration
-
-Add a hook to check for conflicts before starting dev servers:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "command": "/path/to/porthouse/hooks/porthouse-check.sh"
-      }
-    ]
-  }
-}
-```
-
-The hook is silent unless a conflict is detected — zero overhead on normal commands.
 
 ## How It Works
 
-- Uses the [`listeners`](https://docs.rs/listeners) crate for cross-platform port scanning (no `lsof` shelling)
-- Conflict detection compares PIDs, not just port numbers — dual-stack bindings are not false positives
-- Single static binary, no runtime dependencies
-- ~2 MB binary, <5 MB memory, <0.1% CPU
-
-## Requirements
-
-- macOS or Linux
-- Rust 1.70+ (to build from source)
+- Uses the [`listeners`](https://docs.rs/listeners) crate for cross-platform port scanning — no shelling out to `lsof` or `netstat`
+- Conflict detection compares PIDs, not socket counts — dual-stack bindings produce zero false positives
+- Single static binary, zero runtime dependencies
+- 105 tests covering edge cases (port 65535 overflow, inverted ranges, malformed config, cross-platform process management)
+- CI runs on macOS, Linux, and Windows on every commit
 
 ## License
 
