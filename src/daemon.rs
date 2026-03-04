@@ -1,6 +1,7 @@
 use crate::alert::{AlertEvent, AlertManager};
 use crate::config::PorthouseConfig;
 use crate::conflict;
+use crate::process;
 use crate::registry::Registry;
 use crate::scanner;
 use anyhow::Result;
@@ -12,9 +13,8 @@ pub fn start(config: &PorthouseConfig, config_dir: &Path) -> Result<()> {
 
     // Check if daemon already running
     if pid_file.exists() {
-        let existing_pid: i32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
-        let alive = unsafe { libc::kill(existing_pid, 0) == 0 };
-        if alive {
+        let existing_pid: u32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
+        if process::is_process_alive(existing_pid) {
             println!("Daemon already running (PID {})", existing_pid);
             return Ok(());
         }
@@ -32,8 +32,20 @@ pub fn start(config: &PorthouseConfig, config_dir: &Path) -> Result<()> {
 
     // Signal handling for clean shutdown
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, shutdown.clone())?;
-    signal_hook::flag::register(signal_hook::consts::SIGINT, shutdown.clone())?;
+
+    #[cfg(unix)]
+    {
+        signal_hook::flag::register(signal_hook::consts::SIGTERM, shutdown.clone())?;
+        signal_hook::flag::register(signal_hook::consts::SIGINT, shutdown.clone())?;
+    }
+
+    #[cfg(windows)]
+    {
+        let s = shutdown.clone();
+        ctrlc::set_handler(move || {
+            s.store(true, std::sync::atomic::Ordering::Relaxed);
+        })?;
+    }
 
     let mut prev_ports: HashSet<u16> = HashSet::new();
     let mut prev_conflict_ports: HashSet<u16> = HashSet::new();
@@ -104,10 +116,8 @@ pub fn stop(config_dir: &Path) -> Result<()> {
         println!("No daemon running.");
         return Ok(());
     }
-    let pid: i32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
+    let pid: u32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
+    process::kill_process(pid)?;
     let _ = std::fs::remove_file(&pid_file);
     println!("Stopped daemon (PID {}).", pid);
     Ok(())
@@ -119,9 +129,8 @@ pub fn status(config_dir: &Path) -> Result<()> {
         println!("Daemon is not running.");
         return Ok(());
     }
-    let pid: i32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
-    let alive = unsafe { libc::kill(pid, 0) == 0 };
-    if alive {
+    let pid: u32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
+    if process::is_process_alive(pid) {
         println!("Daemon is running (PID {}).", pid);
     } else {
         println!("Daemon is not running (stale PID file).");

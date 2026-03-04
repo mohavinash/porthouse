@@ -228,12 +228,9 @@ fn cmd_kill(port: u16) -> Result<()> {
             "Killing {} (PID {}) on port {}...",
             entry.process_name, entry.pid, port
         );
-        let ret = unsafe { libc::kill(entry.pid as i32, libc::SIGTERM) };
-        if ret == 0 {
-            println!("  Sent SIGTERM to PID {}", entry.pid);
-        } else {
-            let err = std::io::Error::last_os_error();
-            eprintln!("  Failed to kill PID {}: {}", entry.pid, err);
+        match porthouse::process::kill_process(entry.pid) {
+            Ok(()) => println!("  Sent kill signal to PID {}", entry.pid),
+            Err(e) => eprintln!("  Failed to kill PID {}: {}", entry.pid, e),
         }
     }
 

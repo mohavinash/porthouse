@@ -4,5 +4,6 @@ pub mod conflict;
 pub mod config;
 pub mod alert;
 pub mod daemon;
+pub mod process;
 pub mod tui;
 pub mod cli;

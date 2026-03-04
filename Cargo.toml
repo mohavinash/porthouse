@@ -19,12 +19,17 @@ listeners = "0.5"
 ratatui = "0.29"
 crossterm = "0.28"
 notify-rust = "4"
-signal-hook = "0.3"
 dirs = "6"
 chrono = "0.4"
 anyhow = "1"
-libc = "0.2"
 shellexpand = "3"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = "3"
 
 [dev-dependencies]
 tempfile = "3"

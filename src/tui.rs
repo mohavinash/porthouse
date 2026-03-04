@@ -71,9 +71,7 @@ impl App {
             }
             KeyCode::Char('K') => {
                 if let Some(entry) = self.entries.get(self.selected_port_index) {
-                    unsafe {
-                        libc::kill(entry.pid as i32, libc::SIGTERM);
-                    }
+                    let _ = crate::process::kill_process(entry.pid);
                     self.last_scan = Instant::now() - Duration::from_secs(100); // force refresh
                 }
             }
