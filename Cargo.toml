@@ -3,6 +3,8 @@ name = "porthouse"
 version = "0.1.0"
 edition = "2021"
 description = "A lighthouse for your ports — monitors, routes, and resolves conflicts across projects"
+license = "MIT"
+repository = "https://github.com/mohavinash/porthouse"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
