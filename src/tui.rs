@@ -23,6 +23,8 @@ struct App {
     selected_port_index: usize,
     should_quit: bool,
     last_scan: Instant,
+    confirm_kill: bool,
+    status_msg: Option<(String, Instant)>,
 }
 
 impl App {
@@ -35,6 +37,8 @@ impl App {
             selected_port_index: 0,
             should_quit: false,
             last_scan: Instant::now() - Duration::from_secs(100), // force immediate scan
+            confirm_kill: false,
+            status_msg: None,
         }
     }
 
@@ -54,6 +58,35 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyCode) {
+        // If awaiting kill confirmation
+        if self.confirm_kill {
+            self.confirm_kill = false;
+            if key == KeyCode::Char('y') || key == KeyCode::Char('Y') {
+                if let Some(entry) = self.entries.get(self.selected_port_index) {
+                    let name = entry.process_name.clone();
+                    let pid = entry.pid;
+                    match crate::process::kill_process(pid) {
+                        Ok(()) => {
+                            self.status_msg = Some((
+                                format!("Killed {} (PID {})", name, pid),
+                                Instant::now(),
+                            ));
+                        }
+                        Err(e) => {
+                            self.status_msg = Some((
+                                format!("Failed to kill PID {}: {}", pid, e),
+                                Instant::now(),
+                            ));
+                        }
+                    }
+                    self.last_scan = Instant::now() - Duration::from_secs(100);
+                }
+            } else {
+                self.status_msg = Some(("Kill cancelled.".to_string(), Instant::now()));
+            }
+            return;
+        }
+
         match key {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('r') => {
@@ -71,8 +104,11 @@ impl App {
             }
             KeyCode::Char('K') => {
                 if let Some(entry) = self.entries.get(self.selected_port_index) {
-                    let _ = crate::process::kill_process(entry.pid);
-                    self.last_scan = Instant::now() - Duration::from_secs(100); // force refresh
+                    self.status_msg = Some((
+                        format!("Kill {} (PID {}) on port {}? [y/N]", entry.process_name, entry.pid, entry.port),
+                        Instant::now(),
+                    ));
+                    self.confirm_kill = true;
                 }
             }
             _ => {}
@@ -240,10 +276,22 @@ pub fn run(config: PorthouseConfig, registry: Registry) -> Result<()> {
                 .block(Block::default().borders(Borders::ALL).title(" Registry "));
             frame.render_widget(registry_widget, chunks[3]);
 
-            // Footer
-            let footer =
-                Paragraph::new(" [q]uit  [r]efresh  [j/k]navigate  [K]ill  [s]uggest")
-                    .style(Style::default().fg(Color::DarkGray));
+            // Footer — show status message if recent, otherwise keybindings
+            let footer_text = if let Some((ref msg, at)) = app.status_msg {
+                if at.elapsed() < Duration::from_secs(5) {
+                    format!(" {}", msg)
+                } else {
+                    " [q]uit  [r]efresh  [j/k]navigate  [K]ill  [s]uggest".to_string()
+                }
+            } else {
+                " [q]uit  [r]efresh  [j/k]navigate  [K]ill  [s]uggest".to_string()
+            };
+            let footer_style = if app.confirm_kill {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let footer = Paragraph::new(footer_text).style(footer_style);
             frame.render_widget(footer, chunks[4]);
         })?;
 

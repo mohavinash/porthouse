@@ -1,6 +1,16 @@
 use porthouse::alert::{AlertEvent, AlertManager};
 use porthouse::config::AlertConfig;
-use tempfile::TempDir;
+
+/// Helper: create a unique test log path under ~/.porthouse/ and ensure cleanup.
+fn test_log_path(name: &str) -> std::path::PathBuf {
+    let dir = dirs::home_dir().unwrap().join(".porthouse").join("test_logs");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join(name)
+}
+
+fn cleanup_test_log(path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+}
 
 #[test]
 fn test_alert_event_conflict_formatting() {
@@ -39,8 +49,7 @@ fn test_alert_event_port_freed_formatting() {
 
 #[test]
 fn test_log_file_alert() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("alerts.log");
+    let log_path = test_log_path("test_alert.log");
 
     let config = AlertConfig {
         macos_notifications: false,
@@ -59,6 +68,7 @@ fn test_log_file_alert() {
     let content = std::fs::read_to_string(&log_path).unwrap();
     assert!(content.contains("8000"));
     assert!(content.contains("flask"));
+    cleanup_test_log(&log_path);
 }
 
 #[test]
@@ -110,8 +120,8 @@ fn test_alert_very_long_process_name() {
 /// Log file writing when the parent directory does not exist should create it.
 #[test]
 fn test_log_to_file_creates_parent_directory() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("subdir").join("nested").join("alerts.log");
+    let base = dirs::home_dir().unwrap().join(".porthouse").join("test_logs");
+    let log_path = base.join("nested_a").join("nested_b").join("alerts.log");
 
     let config = AlertConfig {
         macos_notifications: false,
@@ -127,13 +137,14 @@ fn test_log_to_file_creates_parent_directory() {
     assert!(log_path.exists(), "Log file should be created in nested directory");
     let content = std::fs::read_to_string(&log_path).unwrap();
     assert!(content.contains("1234"));
+    // Cleanup
+    let _ = std::fs::remove_dir_all(base.join("nested_a"));
 }
 
 /// Multiple log events should append, not overwrite.
 #[test]
 fn test_log_file_append_behavior() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("append_test.log");
+    let log_path = test_log_path("test_append.log");
 
     let config = AlertConfig {
         macos_notifications: false,
@@ -161,9 +172,9 @@ fn test_log_file_append_behavior() {
     assert!(content.contains("2222"), "Second event should be in log");
     assert!(content.contains("3333"), "Third event should be in log");
 
-    // Count lines (each event is one line)
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 3, "Should have exactly 3 log lines");
+    cleanup_test_log(&log_path);
 }
 
 /// fire() with all channels disabled should not panic.
@@ -172,8 +183,8 @@ fn test_fire_all_channels_disabled() {
     let config = AlertConfig {
         macos_notifications: false,
         terminal_bell: false,
-        log_file: String::new(), // empty = disabled
-        webhook_url: String::new(), // empty = disabled
+        log_file: String::new(),
+        webhook_url: String::new(),
     };
 
     let manager = AlertManager::new(config);
@@ -189,8 +200,7 @@ fn test_fire_all_channels_disabled() {
 /// Log file with timestamp should contain a date-like pattern.
 #[test]
 fn test_log_file_contains_timestamp() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("ts_test.log");
+    let log_path = test_log_path("test_timestamp.log");
 
     let config = AlertConfig {
         macos_notifications: false,
@@ -204,12 +214,12 @@ fn test_log_file_contains_timestamp() {
     manager.log_to_file(&event).unwrap();
 
     let content = std::fs::read_to_string(&log_path).unwrap();
-    // Timestamp format is [YYYY-MM-DD HH:MM:SS]
     assert!(
         content.contains("[20"),
         "Log line should contain a timestamp starting with [20: {}",
         content
     );
+    cleanup_test_log(&log_path);
 }
 
 /// Conflict event with many processes should format correctly.
@@ -235,4 +245,20 @@ fn test_alert_port_freed_edge_ports() {
 
     let event_max = AlertEvent::PortFreed { port: 65535 };
     assert!(event_max.to_message().contains("65535"));
+}
+
+/// Log file outside ~/.porthouse/ should be rejected.
+#[test]
+fn test_log_file_path_traversal_rejected() {
+    let config = AlertConfig {
+        macos_notifications: false,
+        terminal_bell: false,
+        log_file: "/tmp/evil.log".to_string(),
+        webhook_url: String::new(),
+    };
+
+    let manager = AlertManager::new(config);
+    let event = AlertEvent::PortFreed { port: 9999 };
+    let result = manager.log_to_file(&event);
+    assert!(result.is_err(), "Log file outside ~/.porthouse/ should be rejected");
 }

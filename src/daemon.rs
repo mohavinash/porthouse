@@ -8,8 +8,24 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::Path;
 
+/// Reject PID file if it's a symlink (prevents symlink attacks).
+fn reject_symlink(path: &std::path::Path) -> Result<()> {
+    if path.exists() {
+        let meta = std::fs::symlink_metadata(path)?;
+        if meta.file_type().is_symlink() {
+            anyhow::bail!(
+                "PID file {} is a symlink — refusing to use it (possible symlink attack)",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn start(config: &PorthouseConfig, config_dir: &Path) -> Result<()> {
     let pid_file = config_dir.join("daemon.pid");
+
+    reject_symlink(&pid_file)?;
 
     // Check if daemon already running
     if pid_file.exists() {
@@ -26,8 +42,17 @@ pub fn start(config: &PorthouseConfig, config_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(config_dir)?;
     std::fs::write(&pid_file, pid.to_string())?;
 
+    // Set restrictive permissions on PID file and config dir
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(config_dir, std::fs::Permissions::from_mode(0o700));
+        let _ = std::fs::set_permissions(&pid_file, std::fs::Permissions::from_mode(0o600));
+    }
+
     let alert_manager = AlertManager::new(config.alerts.clone());
-    let interval = std::time::Duration::from_secs(config.daemon.scan_interval_secs);
+    let scan_secs = config.daemon.scan_interval_secs.max(1); // minimum 1s to prevent busy-loop
+    let interval = std::time::Duration::from_secs(scan_secs);
     let _registry = Registry::load_or_default(&config_dir.join("registry.toml"));
 
     // Signal handling for clean shutdown
@@ -116,7 +141,13 @@ pub fn stop(config_dir: &Path) -> Result<()> {
         println!("No daemon running.");
         return Ok(());
     }
+    reject_symlink(&pid_file)?;
     let pid: u32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
+    if !process::is_process_alive(pid) {
+        println!("Daemon is not running (stale PID file).");
+        let _ = std::fs::remove_file(&pid_file);
+        return Ok(());
+    }
     process::kill_process(pid)?;
     let _ = std::fs::remove_file(&pid_file);
     println!("Stopped daemon (PID {}).", pid);
@@ -129,6 +160,7 @@ pub fn status(config_dir: &Path) -> Result<()> {
         println!("Daemon is not running.");
         return Ok(());
     }
+    reject_symlink(&pid_file)?;
     let pid: u32 = std::fs::read_to_string(&pid_file)?.trim().parse()?;
     if process::is_process_alive(pid) {
         println!("Daemon is running (PID {}).", pid);

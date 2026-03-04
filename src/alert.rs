@@ -2,6 +2,11 @@ use crate::config::AlertConfig;
 use anyhow::Result;
 use std::io::Write;
 
+/// Strip control characters from process names to prevent log injection.
+fn sanitize(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
 #[derive(Debug, Clone)]
 pub enum AlertEvent {
     Conflict {
@@ -22,7 +27,7 @@ impl AlertEvent {
     pub fn to_message(&self) -> String {
         match self {
             AlertEvent::Conflict { port, processes } => {
-                let names: Vec<&str> = processes.iter().map(|(name, _)| name.as_str()).collect();
+                let names: Vec<String> = processes.iter().map(|(name, _)| sanitize(name)).collect();
                 format!(
                     "{} are both fighting over port {}. Run `porthouse kill {}` or reassign one.",
                     names.join(" and "),
@@ -31,7 +36,7 @@ impl AlertEvent {
                 )
             }
             AlertEvent::NewListener { port, process, .. } => {
-                format!("{} just started on port {}.", process, port)
+                format!("{} just started on port {}.", sanitize(process), port)
             }
             AlertEvent::PortFreed { port } => {
                 format!("Port {} is free again.", port)
@@ -88,6 +93,26 @@ impl AlertManager {
     pub fn log_to_file(&self, event: &AlertEvent) -> Result<()> {
         let expanded = shellexpand::tilde(&self.config.log_file).to_string();
         let path = std::path::Path::new(&expanded);
+
+        // Security: validate log path is within ~/.porthouse/
+        if let Some(home) = dirs::home_dir() {
+            let porthouse_dir = home.join(".porthouse");
+            let canonical_parent = if let Some(parent) = path.parent() {
+                // Create parent dirs first so canonicalize works
+                let _ = std::fs::create_dir_all(parent);
+                parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf())
+            } else {
+                return Err(anyhow::anyhow!("Invalid log file path"));
+            };
+            let safe_dir = porthouse_dir.canonicalize().unwrap_or(porthouse_dir);
+            if !canonical_parent.starts_with(&safe_dir) {
+                return Err(anyhow::anyhow!(
+                    "Log file path must be within ~/.porthouse/ (got: {})",
+                    path.display()
+                ));
+            }
+        }
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -101,18 +126,23 @@ impl AlertManager {
     }
 
     fn send_webhook(&self, event: &AlertEvent) -> Result<()> {
+        let url = &self.config.webhook_url;
+        // Security: only allow http/https schemes to prevent SSRF via file:// etc.
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(anyhow::anyhow!(
+                "Webhook URL must use http:// or https:// scheme (got: {})",
+                url
+            ));
+        }
+        let body = serde_json::json!({ "text": event.to_message() });
+        let body_str = serde_json::to_string(&body)?;
+        // Use -- to prevent URL being interpreted as a flag
         std::process::Command::new("curl")
-            .args([
-                "-s",
-                "-X",
-                "POST",
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                &format!(r#"{{"text":"{}"}}"#, event.to_message()),
-                &self.config.webhook_url,
-            ])
-            .spawn()?;
+            .args(["-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", &body_str, "--"])
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()?; // .output() waits for child (prevents zombies)
         Ok(())
     }
 }

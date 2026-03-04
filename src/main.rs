@@ -9,23 +9,30 @@ use porthouse::conflict;
 use porthouse::registry::Registry;
 use porthouse::scanner;
 
-fn config_dir() -> PathBuf {
-    dirs::home_dir()
-        .expect("Could not determine home directory")
-        .join(".porthouse")
+fn config_dir() -> Result<PathBuf> {
+    Ok(dirs::home_dir()
+        .context("Could not determine home directory (is $HOME set?)")?
+        .join(".porthouse"))
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    let config_dir = config_dir();
+    if let Err(e) = run(cli) {
+        eprintln!("Error: {:#}", e);
+        process::exit(1);
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
+    let config_dir = config_dir()?;
     let config_path = config_dir.join("config.toml");
     let registry_path = config_dir.join("registry.toml");
 
     let config = PorthouseConfig::load_or_default(&config_path);
     let registry = Registry::load_or_default(&registry_path);
 
-    let result = match cli.command {
+    match cli.command {
         None => porthouse::tui::run(config, registry),
         Some(Commands::Status) => cmd_status(),
         Some(Commands::Check { quiet, json }) => cmd_check(quiet, json),
@@ -40,11 +47,6 @@ fn main() {
             DaemonAction::Stop => porthouse::daemon::stop(&config_dir),
             DaemonAction::Status => porthouse::daemon::status(&config_dir),
         },
-    };
-
-    if let Err(e) = result {
-        eprintln!("Error: {:#}", e);
-        process::exit(1);
     }
 }
 

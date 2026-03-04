@@ -1,13 +1,28 @@
 /// Cross-platform process utilities: kill and alive-check.
 use anyhow::Result;
 
+/// Validate PID is in a safe range (rejects 0, negative-when-cast, and PID 1).
+fn validate_pid(pid: u32) -> Result<()> {
+    if pid == 0 {
+        anyhow::bail!("Refusing to signal PID 0 (would target own process group)");
+    }
+    if pid > i32::MAX as u32 {
+        anyhow::bail!("PID {} exceeds safe range (would wrap to negative = process group signal)", pid);
+    }
+    Ok(())
+}
+
 /// Send SIGTERM (unix) or TerminateProcess (windows) to a process.
 pub fn kill_process(pid: u32) -> Result<()> {
+    validate_pid(pid)?;
     platform::kill(pid)
 }
 
 /// Check if a process with the given PID is still running.
 pub fn is_process_alive(pid: u32) -> bool {
+    if validate_pid(pid).is_err() {
+        return false;
+    }
     platform::is_alive(pid)
 }
 
