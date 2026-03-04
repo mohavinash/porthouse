@@ -75,6 +75,7 @@ fn test_load_partial_config_missing_fields() {
 
 /// Saving to a read-only directory should fail.
 #[test]
+#[cfg(unix)]
 fn test_save_to_read_only_path() {
     use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new().unwrap();
